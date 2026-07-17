@@ -287,12 +287,8 @@ function registerHotkeys(): void {
   })
   bind('fullscreen', () => void doFullscreenCapture())
 
-  // 长截图进行中：Enter 完成
-  globalShortcut.register('Return', () => {
-    if (scrollSession) void finishManualScroll()
-  })
-
-  // Esc：取消选区 / 取消长截图
+  // 注意：不要全局占用 Enter，否则系统输入框回车会失效
+  // 长截图完成请用浮条图标或再按 F1；Esc 仅在截图流程中取消
   globalShortcut.register('Escape', () => {
     if (scrollSession) {
       cancelManualScroll()
