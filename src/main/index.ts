@@ -262,15 +262,7 @@ async function doFullscreenCapture(): Promise<void> {
   try {
     await sleep(80)
     const png = await captureFullScreen()
-    ensureCaptureDir()
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const filePath = join(CAPTURE_DIR, `full-${stamp}.png`)
-    writeFileSync(filePath, png)
-    const image = nativeImage.createFromBuffer(png)
-    clipboard.writeImage(image)
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('capture:done', { filePath, mode: 'region' })
-    }
+    finishWithPng(png, 'region')
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (mainWindow && !mainWindow.isDestroyed()) {
