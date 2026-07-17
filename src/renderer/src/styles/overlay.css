@@ -44,6 +44,13 @@ body,
   z-index: 1;
 }
 
+.selection.window-edge {
+  border: 2px solid #6ad1ff;
+  box-shadow:
+    0 0 0 1px rgba(106, 209, 255, 0.35),
+    0 0 0 9999px rgba(0, 0, 0, 0.32);
+}
+
 .size {
   position: absolute;
   left: 0;

@@ -14,6 +14,7 @@ import { copyFileSync, mkdirSync, writeFileSync } from 'fs'
 import { captureRegion, captureFullScreen } from './capture'
 import type { Rect } from './scroll-stitch'
 import { ManualScrollSession } from './manual-scroll'
+import { getTopWindowRectAtDip } from './window-detect'
 import {
   createOverlayWindow,
   createMainWindow,
@@ -97,7 +98,8 @@ async function showOverlay(mode: CaptureMode): Promise<void> {
   overlayWindow.setAlwaysOnTop(true, 'screen-saver')
   overlayWindow.show()
   overlayWindow.focus()
-  overlayWindow.webContents.send('overlay:start', { mode })
+  const cursor = screen.getCursorScreenPoint()
+  overlayWindow.webContents.send('overlay:start', { mode, cursor })
 }
 
 function finishWithPng(png: Buffer, mode: CaptureMode): void {
@@ -312,6 +314,10 @@ function registerIpc(): void {
       captureMode = mode
     }
     await handleRegionSelected(rect)
+  })
+
+  ipcMain.handle('overlay:window-at', (_e, point: { x: number; y: number }) => {
+    return getTopWindowRectAtDip(point.x, point.y)
   })
 
   ipcMain.handle('scroll-bar:finish', async () => {

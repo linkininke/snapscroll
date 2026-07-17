@@ -4,13 +4,33 @@ import './styles/overlay.css'
 
 type Mode = 'region' | 'scroll'
 type Point = { sx: number; sy: number; cx: number; cy: number }
-type RectPx = { left: number; top: number; width: number; height: number; x: number; y: number; w: number; h: number }
+type ScreenRect = { x: number; y: number; width: number; height: number }
+type RectPx = {
+  left: number
+  top: number
+  width: number
+  height: number
+  x: number
+  y: number
+  w: number
+  h: number
+  kind: 'window' | 'custom'
+}
+
+const DRAG_THRESHOLD = 8
 
 function IconShot(): React.JSX.Element {
   return (
     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
       <rect x="3" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M8 12.5l2.5 2.5L16 9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M8 12.5l2.5 2.5L16 9"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -19,9 +39,25 @@ function IconScroll(): React.JSX.Element {
   return (
     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
       <rect x="6" y="3" width="12" height="18" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <path d="M12 7v10M9.5 9.5L12 7l2.5 2.5M9.5 14.5L12 17l2.5-2.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M12 7v10M9.5 9.5L12 7l2.5 2.5M9.5 14.5L12 17l2.5-2.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
+}
+
+function toClientRect(r: ScreenRect): Pick<RectPx, 'left' | 'top' | 'width' | 'height'> {
+  return {
+    left: r.x - window.screenX,
+    top: r.y - window.screenY,
+    width: r.width,
+    height: r.height
+  }
 }
 
 function OverlayApp(): React.JSX.Element {
@@ -29,19 +65,40 @@ function OverlayApp(): React.JSX.Element {
   const [start, setStart] = useState<Point | null>(null)
   const [current, setCurrent] = useState<Point | null>(null)
   const [finished, setFinished] = useState<RectPx | null>(null)
+  const [hoverWindow, setHoverWindow] = useState<ScreenRect | null>(null)
   const dragging = useRef(false)
+  const moved = useRef(false)
+  const hoverReq = useRef(0)
+  const lastHoverAt = useRef(0)
 
   const reset = (): void => {
     setStart(null)
     setCurrent(null)
     setFinished(null)
     dragging.current = false
+    moved.current = false
+  }
+
+  const refreshHover = (sx: number, sy: number): void => {
+    const now = Date.now()
+    if (now - lastHoverAt.current < 40) return
+    lastHoverAt.current = now
+    const id = ++hoverReq.current
+    void window.overlayApi.windowAt({ x: sx, y: sy }).then((rect) => {
+      if (id !== hoverReq.current) return
+      if (dragging.current || finished) return
+      setHoverWindow(rect)
+    })
   }
 
   useEffect(() => {
     return window.overlayApi.onStart((p) => {
       setHintMode(p.mode)
       reset()
+      setHoverWindow(null)
+      const cx = p.cursor?.x ?? window.screenX + window.innerWidth / 2
+      const cy = p.cursor?.y ?? window.screenY + window.innerHeight / 2
+      refreshHover(cx, cy)
     })
   }, [])
 
@@ -78,53 +135,84 @@ function OverlayApp(): React.JSX.Element {
 
   const onPointerDown = (e: React.PointerEvent): void => {
     if (finished) {
-      // 点在工具栏外则取消重选
       const target = e.target as HTMLElement
       if (target.closest('.action-bar')) return
       reset()
     }
     dragging.current = true
+    moved.current = false
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
     const p = pointFromEvent(e)
     setStart(p)
     setCurrent(p)
     setFinished(null)
+    refreshHover(p.sx, p.sy)
   }
 
   const onPointerMove = (e: React.PointerEvent): void => {
-    if (!dragging.current) return
-    setCurrent(pointFromEvent(e))
+    const p = pointFromEvent(e)
+    if (!dragging.current) {
+      refreshHover(p.sx, p.sy)
+      return
+    }
+    if (start) {
+      const dist = Math.hypot(p.sx - start.sx, p.sy - start.sy)
+      if (dist >= DRAG_THRESHOLD) {
+        moved.current = true
+        setHoverWindow(null)
+      }
+    }
+    setCurrent(p)
+  }
+
+  const finishWithScreenRect = (r: ScreenRect, kind: 'window' | 'custom'): void => {
+    const client = toClientRect(r)
+    setFinished({
+      ...client,
+      x: r.x,
+      y: r.y,
+      w: r.width,
+      h: r.height,
+      kind
+    })
   }
 
   const onPointerUp = (e: React.PointerEvent): void => {
     if (!dragging.current || !start) return
     dragging.current = false
     const end = pointFromEvent(e)
+    setCurrent(end)
+
+    // 未拖拽：截取鼠标下当前窗口（边缘扫描结果）
+    if (!moved.current) {
+      void window.overlayApi.windowAt({ x: start.sx, y: start.sy }).then((rect) => {
+        if (rect) {
+          setHoverWindow(null)
+          finishWithScreenRect(rect, 'window')
+          return
+        }
+        // 找不到窗口则取消，避免误截
+        void window.overlayApi.cancel()
+      })
+      return
+    }
+
     const x = Math.min(start.sx, end.sx)
     const y = Math.min(start.sy, end.sy)
     const w = Math.abs(end.sx - start.sx)
     const h = Math.abs(end.sy - start.sy)
 
-    if (w < 8 || h < 8) {
+    if (w < DRAG_THRESHOLD || h < DRAG_THRESHOLD) {
       void window.overlayApi.cancel()
       return
     }
 
-    setFinished({
-      left: Math.min(start.cx, end.cx),
-      top: Math.min(start.cy, end.cy),
-      width: Math.abs(end.cx - start.cx),
-      height: Math.abs(end.cy - start.cy),
-      x,
-      y,
-      w,
-      h
-    })
-    setCurrent(end)
+    setHoverWindow(null)
+    finishWithScreenRect({ x, y, width: w, height: h }, 'custom')
   }
 
-  const liveRect =
-    !finished && start && current
+  const liveCustom =
+    dragging.current && moved.current && start && current
       ? {
           left: Math.min(start.cx, current.cx),
           top: Math.min(start.cy, current.cy),
@@ -133,7 +221,10 @@ function OverlayApp(): React.JSX.Element {
         }
       : null
 
-  const rect = finished ?? liveRect
+  const hoverClient = !finished && !moved.current && hoverWindow ? toClientRect(hoverWindow) : null
+  const rect = finished
+    ? { left: finished.left, top: finished.top, width: finished.width, height: finished.height }
+    : liveCustom ?? hoverClient
 
   const confirm = (mode: Mode): void => {
     if (!finished) return
@@ -143,13 +234,18 @@ function OverlayApp(): React.JSX.Element {
     )
   }
 
-  // 工具条贴在选区右下角外侧，靠近屏幕边缘时往内收
   const barStyle = finished
     ? {
         left: Math.min(finished.left + finished.width - 8, window.innerWidth - 96),
         top: Math.min(finished.top + finished.height + 8, window.innerHeight - 48)
       }
     : undefined
+
+  const hint = finished
+    ? finished.kind === 'window'
+      ? '已选中当前窗口 · 点右下角截图/长截图 · Esc 取消'
+      : '自定义选区 · 点右下角截图/长截图 · Esc 取消'
+    : '移动扫描窗口边缘 · 单击截当前窗口 · 拖拽自定义选区 · Esc 取消'
 
   return (
     <div
@@ -158,17 +254,11 @@ function OverlayApp(): React.JSX.Element {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
-      {!finished ? (
-        <div className="hint">
-          {hintMode === 'scroll' ? '拖拽选择滚动区域 · Esc 取消' : '拖拽选择截图区域 · Esc 取消'}
-        </div>
-      ) : (
-        <div className="hint">点右下角：截图 / 长截图（开始）· Esc 取消</div>
-      )}
+      <div className="hint">{hint}</div>
 
       {rect ? (
         <div
-          className="selection"
+          className={`selection${finished?.kind === 'window' || (!finished && hoverClient) ? ' window-edge' : ''}`}
           style={{
             left: rect.left,
             top: rect.top,
@@ -177,17 +267,14 @@ function OverlayApp(): React.JSX.Element {
           }}
         >
           <span className="size">
+            {!finished && hoverClient && !moved.current ? '窗口 ' : ''}
             {Math.round(rect.width)} × {Math.round(rect.height)}
           </span>
         </div>
       ) : null}
 
       {finished && barStyle ? (
-        <div
-          className="action-bar"
-          style={barStyle}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
+        <div className="action-bar" style={barStyle} onPointerDown={(e) => e.stopPropagation()}>
           <button
             type="button"
             className={`icon-btn${hintMode === 'region' ? ' preferred' : ''}`}

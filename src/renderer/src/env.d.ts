@@ -17,7 +17,16 @@ declare global {
         rect: { x: number; y: number; width: number; height: number },
         mode: 'region' | 'scroll'
       ) => Promise<void>
-      onStart: (cb: (payload: { mode: 'region' | 'scroll' }) => void) => () => void
+      windowAt: (point: { x: number; y: number }) => Promise<{
+        x: number
+        y: number
+        width: number
+        height: number
+      } | null>
+      onStart: (cb: (payload: {
+        mode: 'region' | 'scroll'
+        cursor?: { x: number; y: number }
+      }) => void) => () => void
     }
     pinApi: {
       close: () => Promise<void>
