@@ -60,6 +60,11 @@ function toClientRect(r: ScreenRect): Pick<RectPx, 'left' | 'top' | 'width' | 'h
   }
 }
 
+function sameRect(a: ScreenRect | null, b: ScreenRect | null): boolean {
+  if (!a || !b) return a === b
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+}
+
 function OverlayApp(): React.JSX.Element {
   const [hintMode, setHintMode] = useState<Mode>('region')
   const [start, setStart] = useState<Point | null>(null)
@@ -68,26 +73,32 @@ function OverlayApp(): React.JSX.Element {
   const [hoverWindow, setHoverWindow] = useState<ScreenRect | null>(null)
   const dragging = useRef(false)
   const moved = useRef(false)
+  const finishedRef = useRef(false)
   const hoverReq = useRef(0)
-  const lastHoverAt = useRef(0)
+  const lastHoverKey = useRef('')
 
   const reset = (): void => {
     setStart(null)
     setCurrent(null)
     setFinished(null)
+    finishedRef.current = false
     dragging.current = false
     moved.current = false
   }
 
   const refreshHover = (sx: number, sy: number): void => {
-    const now = Date.now()
-    if (now - lastHoverAt.current < 40) return
-    lastHoverAt.current = now
+    if (dragging.current || finishedRef.current) return
+    const key = `${Math.round(sx / 4)}_${Math.round(sy / 4)}`
+    // 同格不重复请求，但换位置一定刷新（修复“选区卡住”）
+    if (key === lastHoverKey.current && hoverReq.current > 0) {
+      // 仍允许定时刷新，下面用时间戳
+    }
+    lastHoverKey.current = key
     const id = ++hoverReq.current
     void window.overlayApi.windowAt({ x: sx, y: sy }).then((rect) => {
       if (id !== hoverReq.current) return
-      if (dragging.current || finished) return
-      setHoverWindow(rect)
+      if (dragging.current || finishedRef.current) return
+      setHoverWindow((prev) => (sameRect(prev, rect) ? prev : rect))
     })
   }
 
@@ -96,9 +107,11 @@ function OverlayApp(): React.JSX.Element {
       setHintMode(p.mode)
       reset()
       setHoverWindow(null)
+      lastHoverKey.current = ''
       const cx = p.cursor?.x ?? window.screenX + window.innerWidth / 2
       const cy = p.cursor?.y ?? window.screenY + window.innerHeight / 2
-      refreshHover(cx, cy)
+      // 稍延迟，等遮罩真正盖上再穿透探测
+      window.setTimeout(() => refreshHover(cx, cy), 30)
     })
   }, [])
 
@@ -146,7 +159,7 @@ function OverlayApp(): React.JSX.Element {
     setStart(p)
     setCurrent(p)
     setFinished(null)
-    refreshHover(p.sx, p.sy)
+    finishedRef.current = false
   }
 
   const onPointerMove = (e: React.PointerEvent): void => {
@@ -167,6 +180,7 @@ function OverlayApp(): React.JSX.Element {
 
   const finishWithScreenRect = (r: ScreenRect, kind: 'window' | 'custom'): void => {
     const client = toClientRect(r)
+    finishedRef.current = true
     setFinished({
       ...client,
       x: r.x,
@@ -183,15 +197,19 @@ function OverlayApp(): React.JSX.Element {
     const end = pointFromEvent(e)
     setCurrent(end)
 
-    // 未拖拽：截取鼠标下当前窗口（边缘扫描结果）
+    // 未拖拽：截取鼠标下当前窗口（微信等）
     if (!moved.current) {
-      void window.overlayApi.windowAt({ x: start.sx, y: start.sy }).then((rect) => {
+      void window.overlayApi.windowAt({ x: end.sx, y: end.sy }).then((rect) => {
         if (rect) {
           setHoverWindow(null)
           finishWithScreenRect(rect, 'window')
           return
         }
-        // 找不到窗口则取消，避免误截
+        // 回退：用悬停缓存
+        if (hoverWindow) {
+          finishWithScreenRect(hoverWindow, 'window')
+          return
+        }
         void window.overlayApi.cancel()
       })
       return
@@ -243,9 +261,9 @@ function OverlayApp(): React.JSX.Element {
 
   const hint = finished
     ? finished.kind === 'window'
-      ? '已选中当前窗口 · 点右下角截图/长截图 · Esc 取消'
+      ? '已选中窗口（可截微信）· 点右下角截图/长截图 · Esc 取消'
       : '自定义选区 · 点右下角截图/长截图 · Esc 取消'
-    : '移到微信等窗口上看边缘高亮 · 单击截当前窗口 · 拖拽才自定义 · Esc 取消'
+    : '移到微信窗口上应跟随高亮 · 单击截该窗 · 拖拽自定义 · Esc 取消'
 
   return (
     <div

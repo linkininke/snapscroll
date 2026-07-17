@@ -31,9 +31,27 @@ const WindowFromPoint = user32.func('void * __stdcall WindowFromPoint(POINT Poin
 const GetClassNameW = user32.func('int __stdcall GetClassNameW(void *hWnd, _Out_ uint16 *lpClassName, int nMaxCount)')
 const GetWindowTextW = user32.func('int __stdcall GetWindowTextW(void *hWnd, _Out_ uint16 *lpString, int nMaxCount)')
 
+const GWL_STYLE = -16
 const GWL_EXSTYLE = -20
+const WS_DISABLED = 0x08000000
 const WS_EX_TOOLWINDOW = 0x00000080
+const WS_EX_NOACTIVATE = 0x08000000
+const WS_EX_TRANSPARENT = 0x00000020
+const WS_EX_LAYERED = 0x00080000
 const GA_ROOT = 2
+
+type RawRect = { left: number; top: number; right: number; bottom: number }
+
+type Candidate = {
+  hwnd: unknown
+  title: string
+  cls: string
+  raw: RawRect
+  dip: Rect
+  area: number
+  zOrder: number
+  wechat: boolean
+}
 
 function physicalToDipRect(left: number, top: number, right: number, bottom: number): Rect {
   const tl = screen.screenToDipPoint({ x: left, y: top })
@@ -46,7 +64,11 @@ function physicalToDipRect(left: number, top: number, right: number, bottom: num
   }
 }
 
-function readWString(fn: (hwnd: unknown, buf: Uint16Array, n: number) => number, hwnd: unknown, size: number): string {
+function readWString(
+  fn: (hwnd: unknown, buf: Uint16Array, n: number) => number,
+  hwnd: unknown,
+  size: number
+): string {
   const buf = new Uint16Array(size)
   const n = fn(hwnd, buf, size)
   if (n <= 0) return ''
@@ -59,66 +81,85 @@ function isOwnProcess(hwnd: unknown): boolean {
   return pidBuf[0] === process.pid
 }
 
-function isWeChatLike(hwnd: unknown): boolean {
-  const title = readWString(GetWindowTextW, hwnd, 256)
-  const cls = readWString(GetClassNameW, hwnd, 256)
+function isWeChatLike(title: string, cls: string): boolean {
   const text = `${title} ${cls}`
-  return /微信|Weixin|WeChat|ChatWnd|mmui|WeChatMain|Qt\d+QWindow/i.test(text)
+  return /微信|Weixin|WeChat|ChatWnd|mmui|WeChatMain|Weixin\.exe|Qt\d+QWindowIcon/i.test(text)
 }
 
-function isSkippableWindow(hwnd: unknown): boolean {
-  if (!IsWindowVisible(hwnd) || IsIconic(hwnd)) return true
-  if (isOwnProcess(hwnd)) return true
-
-  const ex = Number(GetWindowLongPtrW(hwnd, GWL_EXSTYLE))
-  // 工具窗默认跳过，但微信/Qt 主窗有时带 TOOLWINDOW，需放行
-  if (ex & WS_EX_TOOLWINDOW && !isWeChatLike(hwnd)) return true
-
-  return false
+function isDesktopOrShell(title: string, cls: string): boolean {
+  return /^(Progman|WorkerW|Shell_TrayWnd|Shell_SecondaryTrayWnd|XamlExplorerHostIslandWindow|Windows\.UI\.Core\.CoreWindow|ApplicationFrameWindow|EdgeUiInputTopWndClass|ForegroundStaging|Internet Explorer_Hidden|SysShadow)$/i.test(
+    cls
+  ) || /^Program Manager$/i.test(title)
 }
 
-function rectFromHwnd(hwnd: unknown): Rect | null {
-  const root = GetAncestor(hwnd, GA_ROOT) || hwnd
-  if (isOwnProcess(root)) return null
+function nearlyFullscreen(raw: RawRect): boolean {
+  const display = screen.getDisplayNearestPoint(
+    screen.screenToDipPoint({ x: raw.left + 10, y: raw.top + 10 })
+  )
+  const b = display.bounds
+  const physTl = screen.dipToScreenPoint({ x: b.x, y: b.y })
+  const physBr = screen.dipToScreenPoint({ x: b.x + b.width, y: b.y + b.height })
+  const screenW = Math.abs(physBr.x - physTl.x)
+  const screenH = Math.abs(physBr.y - physTl.y)
+  const w = raw.right - raw.left
+  const h = raw.bottom - raw.top
+  // 覆盖整块显示器 96%+ 的壳层不要当作“当前应用窗”
+  return w >= screenW * 0.96 && h >= screenH * 0.96
+}
 
+function getRawRect(hwnd: unknown): RawRect | null {
   const rect = {}
-  if (!GetWindowRect(root, rect)) return null
-  const r = rect as { left: number; top: number; right: number; bottom: number }
-  const w = r.right - r.left
-  const h = r.bottom - r.top
-  // 微信主窗通常较大；过小的气泡/菜单忽略
-  if (w < 120 || h < 120) return null
-  // 几乎全屏的壳层也接受（微信最大化）
-  return physicalToDipRect(r.left, r.top, r.right, r.bottom)
+  if (!GetWindowRect(hwnd, rect)) return null
+  return rect as RawRect
 }
 
-/**
- * Z 序扫描：找到覆盖该点的最上层可见窗口。
- * 对微信白底主窗做了 TOOLWINDOW / Qt 特例放行。
- */
-export function getTopWindowRectAtPhysical(px: number, py: number): Rect | null {
-  let found: Rect | null = null
-  let wechatCandidate: Rect | null = null
+function containsPoint(raw: RawRect, px: number, py: number): boolean {
+  return px >= raw.left && px < raw.right && py >= raw.top && py < raw.bottom
+}
+
+function collectCandidates(px: number, py: number): Candidate[] {
+  const list: Candidate[] = []
+  let z = 0
 
   const cb = koffi.register((hwnd: unknown) => {
-    if (found) return false
-    if (isSkippableWindow(hwnd)) return true
+    z += 1
+    if (!IsWindowVisible(hwnd) || IsIconic(hwnd)) return true
+    if (isOwnProcess(hwnd)) return true
 
-    const rect = {}
-    if (!GetWindowRect(hwnd, rect)) return true
-    const r = rect as { left: number; top: number; right: number; bottom: number }
-    const w = r.right - r.left
-    const h = r.bottom - r.top
-    if (w < 120 || h < 120) return true
-    if (px < r.left || px >= r.right || py < r.top || py >= r.bottom) return true
+    const style = Number(GetWindowLongPtrW(hwnd, GWL_STYLE))
+    if (style & WS_DISABLED) return true
 
-    const dip = physicalToDipRect(r.left, r.top, r.right, r.bottom)
-    if (isWeChatLike(hwnd)) {
-      // 优先记住微信主窗，避免被上层透明壳抢走
-      wechatCandidate = dip
-    }
-    found = dip
-    return false
+    const ex = Number(GetWindowLongPtrW(hwnd, GWL_EXSTYLE))
+    const title = readWString(GetWindowTextW, hwnd, 256)
+    const cls = readWString(GetClassNameW, hwnd, 256)
+    const wechat = isWeChatLike(title, cls)
+
+    if (isDesktopOrShell(title, cls)) return true
+    // 透明点击穿透层跳过（除非微信）
+    if ((ex & WS_EX_TRANSPARENT) && !wechat) return true
+    if ((ex & WS_EX_TOOLWINDOW) && !wechat && !title) return true
+    if ((ex & WS_EX_NOACTIVATE) && !wechat && (ex & WS_EX_TOOLWINDOW)) return true
+
+    const raw = getRawRect(hwnd)
+    if (!raw) return true
+    const w = raw.right - raw.left
+    const h = raw.bottom - raw.top
+    if (w < 80 || h < 80) return true
+    if (!containsPoint(raw, px, py)) return true
+    // 非微信的“假全屏”壳不要
+    if (!wechat && nearlyFullscreen(raw)) return true
+
+    list.push({
+      hwnd,
+      title,
+      cls,
+      raw,
+      dip: physicalToDipRect(raw.left, raw.top, raw.right, raw.bottom),
+      area: w * h,
+      zOrder: z,
+      wechat
+    })
+    return true
   }, koffi.pointer(EnumWindowsProc))
 
   try {
@@ -127,18 +168,25 @@ export function getTopWindowRectAtPhysical(px: number, py: number): Rect | null 
     koffi.unregister(cb)
   }
 
-  // 若命中点在微信窗内，优先返回微信边框（更适合白底聊天窗截图）
-  if (wechatCandidate) return wechatCandidate
-  return found
+  return list
 }
 
-/** DIP 屏幕坐标 → 窗口矩形（DIP） */
-export function getTopWindowRectAtDip(dipX: number, dipY: number): Rect | null {
-  const phys = screen.dipToScreenPoint({ x: dipX, y: dipY })
-  let rect = getTopWindowRectAtPhysical(phys.x, phys.y)
-  if (rect) return rect
+function pickBest(cands: Candidate[]): Candidate | null {
+  if (cands.length === 0) return null
 
-  // 兜底：临时让所有本进程窗口穿透，再用 WindowFromPoint
+  // 1) 光标下的微信主窗优先（按 Z 序最靠前）
+  const wechat = cands.filter((c) => c.wechat).sort((a, b) => a.zOrder - b.zOrder)
+  if (wechat.length > 0) return wechat[0]
+
+  // 2) 其余：Z 序最前，且面积不是离谱大屏
+  const normal = [...cands].sort((a, b) => {
+    if (a.zOrder !== b.zOrder) return a.zOrder - b.zOrder
+    return a.area - b.area
+  })
+  return normal[0] ?? null
+}
+
+function fromWindowFromPoint(px: number, py: number): Rect | null {
   const ours = BrowserWindow.getAllWindows()
   for (const w of ours) {
     try {
@@ -148,8 +196,23 @@ export function getTopWindowRectAtDip(dipX: number, dipY: number): Rect | null {
     }
   }
   try {
-    const hwnd = WindowFromPoint({ x: phys.x, y: phys.y })
-    if (hwnd) rect = rectFromHwnd(hwnd)
+    const hwnd = WindowFromPoint({ x: px, y: py })
+    if (!hwnd || isOwnProcess(hwnd)) return null
+    const root = GetAncestor(hwnd, GA_ROOT) || hwnd
+    if (isOwnProcess(root)) return null
+
+    const title = readWString(GetWindowTextW, root, 256)
+    const cls = readWString(GetClassNameW, root, 256)
+    if (isDesktopOrShell(title, cls)) return null
+
+    const raw = getRawRect(root)
+    if (!raw) return null
+    const w = raw.right - raw.left
+    const h = raw.bottom - raw.top
+    if (w < 80 || h < 80) return null
+    const wechat = isWeChatLike(title, cls)
+    if (!wechat && nearlyFullscreen(raw)) return null
+    return physicalToDipRect(raw.left, raw.top, raw.right, raw.bottom)
   } finally {
     for (const w of ours) {
       try {
@@ -159,5 +222,26 @@ export function getTopWindowRectAtDip(dipX: number, dipY: number): Rect | null {
       }
     }
   }
-  return rect
 }
+
+/**
+ * 在物理屏幕坐标处解析“当前窗口”边框（DIP）。
+ * 先用 EnumWindows 候选打分（避免误吸桌面/全屏壳导致选区卡住），
+ * 找不到时再用 WindowFromPoint 穿透兜底。
+ */
+export function getTopWindowRectAtPhysical(px: number, py: number): Rect | null {
+  const cands = collectCandidates(px, py)
+  const best = pickBest(cands)
+  if (best) return best.dip
+
+  return fromWindowFromPoint(px, py)
+}
+
+/** DIP 屏幕坐标 → 窗口矩形（DIP） */
+export function getTopWindowRectAtDip(dipX: number, dipY: number): Rect | null {
+  // Electron/Chromium 的 screenX 与 getCursorScreenPoint 同为 DIP
+  const phys = screen.dipToScreenPoint({ x: Math.round(dipX), y: Math.round(dipY) })
+  return getTopWindowRectAtPhysical(phys.x, phys.y)
+}
+
+void WS_EX_LAYERED
