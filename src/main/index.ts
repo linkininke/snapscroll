@@ -42,6 +42,7 @@ let captureMode: CaptureMode = 'region'
 let busy = false
 let quitting = false
 let scrollSession: ManualScrollSession | null = null
+let escapeHotkeyBound = false
 
 const CAPTURE_DIR = 'E:\\截图文件'
 
@@ -51,6 +52,57 @@ function ensureCaptureDir(): void {
 
 function isDev(): boolean {
   return !app.isPackaged
+}
+
+function isPinWindow(win: BrowserWindow): boolean {
+  try {
+    return win.getTitle() === '贴图'
+  } catch {
+    return false
+  }
+}
+
+function closeAllPinWindows(): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed() && isPinWindow(win)) {
+      win.close()
+    }
+  }
+}
+
+function captureUiActive(): boolean {
+  if (scrollSession) return true
+  if (overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible()) return true
+  return BrowserWindow.getAllWindows().some((w) => !w.isDestroyed() && isPinWindow(w))
+}
+
+function handleEscapeHotkey(): void {
+  if (scrollSession) {
+    cancelManualScroll()
+    syncEscapeHotkey()
+    return
+  }
+  if (overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible()) {
+    overlayWindow.hide()
+    syncEscapeHotkey()
+    return
+  }
+  closeAllPinWindows()
+  syncEscapeHotkey()
+}
+
+/** 仅在选区/长截图/贴图进行中占用 Esc，空闲时释放给系统 */
+function syncEscapeHotkey(): void {
+  const need = captureUiActive()
+  if (need && !escapeHotkeyBound) {
+    escapeHotkeyBound = globalShortcut.register('Escape', handleEscapeHotkey)
+    if (!escapeHotkeyBound) {
+      console.warn('[hotkey] Escape 注册失败')
+    }
+  } else if (!need && escapeHotkeyBound) {
+    globalShortcut.unregister('Escape')
+    escapeHotkeyBound = false
+  }
 }
 
 function showMainWindow(): void {
@@ -101,6 +153,7 @@ async function showOverlay(mode: CaptureMode): Promise<void> {
   overlayWindow.focus()
   const cursor = screen.getCursorScreenPoint()
   overlayWindow.webContents.send('overlay:start', { mode, cursor })
+  syncEscapeHotkey()
 }
 
 function finishWithPng(png: Buffer, mode: CaptureMode): void {
@@ -113,11 +166,13 @@ function finishWithPng(png: Buffer, mode: CaptureMode): void {
   clipboard.writeImage(image)
 
   const size = image.getSize()
-  createPinWindow(isDev(), {
+  const pin = createPinWindow(isDev(), {
     filePath,
     width: size.width,
     height: size.height
   })
+  pin.on('closed', () => syncEscapeHotkey())
+  syncEscapeHotkey()
 
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('capture:done', { filePath, mode })
@@ -183,10 +238,12 @@ async function startManualScroll(rect: Rect): Promise<void> {
       }
     })
     await scrollSession.start()
+    syncEscapeHotkey()
   } catch (err) {
     scrollSession = null
     hideScrollBar()
     busy = false
+    syncEscapeHotkey()
     const message = err instanceof Error ? err.message : String(err)
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('capture:error', { message })
@@ -214,6 +271,7 @@ async function finishManualScroll(): Promise<void> {
     console.error('[scroll]', message)
   } finally {
     busy = false
+    syncEscapeHotkey()
   }
 }
 
@@ -224,6 +282,7 @@ function cancelManualScroll(): void {
   }
   hideScrollBar()
   busy = false
+  syncEscapeHotkey()
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('capture:status', { status: 'cancelled' })
   }
@@ -253,6 +312,7 @@ async function handleRegionSelected(rect: Rect): Promise<void> {
     console.error('[capture]', message)
   } finally {
     busy = false
+    syncEscapeHotkey()
   }
 }
 
@@ -270,6 +330,7 @@ async function doFullscreenCapture(): Promise<void> {
     }
   } finally {
     busy = false
+    syncEscapeHotkey()
   }
 }
 
@@ -297,17 +358,7 @@ function registerHotkeys(): void {
   })
   bind('fullscreen', () => void doFullscreenCapture())
 
-  // 注意：不要全局占用 Enter，否则系统输入框回车会失效
-  // 长截图完成请用浮条图标或再按 F1；Esc 仅在截图流程中取消
-  globalShortcut.register('Escape', () => {
-    if (scrollSession) {
-      cancelManualScroll()
-      return
-    }
-    if (overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible()) {
-      overlayWindow.hide()
-    }
-  })
+  // Esc 改为按需注册（见 syncEscapeHotkey），避免空闲时抢走系统 Esc
 }
 
 function registerIpc(): void {
@@ -315,6 +366,7 @@ function registerIpc(): void {
     if (overlayWindow && !overlayWindow.isDestroyed()) {
       overlayWindow.hide()
     }
+    syncEscapeHotkey()
   })
 
   ipcMain.handle('overlay:confirm', async (_e, rect: Rect, mode?: CaptureMode) => {
@@ -322,6 +374,7 @@ function registerIpc(): void {
       captureMode = mode
     }
     await handleRegionSelected(rect)
+    syncEscapeHotkey()
   })
 
   ipcMain.handle('overlay:window-at', (_e, point: { x: number; y: number }) => {
@@ -354,6 +407,7 @@ function registerIpc(): void {
   ipcMain.handle('pin:close', (e) => {
     const win = BrowserWindow.fromWebContents(e.sender)
     win?.close()
+    syncEscapeHotkey()
   })
 
   ipcMain.handle('pin:save-as', async (e, filePath: string) => {
