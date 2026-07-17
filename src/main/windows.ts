@@ -113,8 +113,7 @@ export function createScrollBarWindow(
   })
 
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  // 不进系统截屏 / BitBlt，避免「继续长截图」条被拼进长图
-  win.setContentProtection(true)
+  // 不要 setContentProtection：叠在选区上时 BitBlt 会变成黑块，拼进长图就是黑线断层
   void win.loadURL(rendererPage(isDev, 'scroll-bar'))
   return win
 }

@@ -140,20 +140,30 @@ async function startManualScroll(rect: Rect): Promise<void> {
     const display = screen.getPrimaryDisplay().workArea
     const barW = 360
     const barH = 52
-    // 尽量放在选区外，避免叠在聊天内容上
-    const below = rect.y + rect.height + 12
-    const above = rect.y - barH - 12
-    let barY =
-      below + barH <= display.y + display.height
-        ? below
-        : above >= display.y
-          ? above
-          : display.y + display.height - barH - 8
-    const barX = Math.min(
-      Math.max(display.x + 8, Math.round(rect.x + (rect.width - barW) / 2)),
-      display.x + display.width - barW - 8
-    )
-    const anchor = { x: barX, y: barY }
+    // 浮条尽量放在选区外的屏幕角落，避免叠进长图
+    const candidates = [
+      { x: display.x + display.width - barW - 16, y: display.y + display.height - barH - 16 },
+      { x: display.x + 16, y: display.y + display.height - barH - 16 },
+      { x: display.x + display.width - barW - 16, y: display.y + 16 },
+      { x: display.x + 16, y: display.y + 16 },
+      { x: Math.round(rect.x + (rect.width - barW) / 2), y: rect.y + rect.height + 12 },
+      { x: Math.round(rect.x + (rect.width - barW) / 2), y: rect.y - barH - 12 }
+    ]
+    const overlaps = (a: Rect, b: { x: number; y: number; width: number; height: number }): boolean =>
+      a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+    let anchor =
+      candidates.find((c) => {
+        const clamped = {
+          x: Math.min(Math.max(display.x, c.x), display.x + display.width - barW),
+          y: Math.min(Math.max(display.y, c.y), display.y + display.height - barH)
+        }
+        return !overlaps(rect, { ...clamped, width: barW, height: barH })
+      }) ?? candidates[0]!
+    anchor = {
+      x: Math.min(Math.max(display.x, anchor.x), display.x + display.width - barW),
+      y: Math.min(Math.max(display.y, anchor.y), display.y + display.height - barH)
+    }
+    const barOverlapsCapture = overlaps(rect, { ...anchor, width: barW, height: barH })
 
     if (scrollBarWindow && !scrollBarWindow.isDestroyed()) {
       scrollBarWindow.close()
@@ -164,6 +174,17 @@ async function startManualScroll(rect: Rect): Promise<void> {
     scrollBarWindow.showInactive()
 
     scrollSession = new ManualScrollSession(rect, {
+      // 仅当浮条与选区重叠时才临时隐藏，避免黑块/闪得太勤
+      onBeforeCapture: barOverlapsCapture
+        ? () => {
+            if (scrollBarWindow && !scrollBarWindow.isDestroyed()) scrollBarWindow.hide()
+          }
+        : undefined,
+      onAfterCapture: barOverlapsCapture
+        ? () => {
+            if (scrollBarWindow && !scrollBarWindow.isDestroyed()) scrollBarWindow.showInactive()
+          }
+        : undefined,
       onFrameCount: (count) => {
         if (scrollBarWindow && !scrollBarWindow.isDestroyed()) {
           scrollBarWindow.webContents.send('scroll-bar:frames', count)
