@@ -17,7 +17,7 @@ export default function App(): React.JSX.Element {
       setLastFile(p.filePath)
     })
     const offStatus = window.snapscroll.onCaptureStatus((p) => {
-      if (p.status === 'scrolling') setStatus('连续长截图中：请匀速滚动，完成后点图标')
+      if (p.status === 'scrolling') setStatus('连续长截图中：随意滚动，完成后点图标')
       if (p.status === 'stitching') setStatus('正在拼接…')
       if (p.status === 'cancelled') setStatus('已取消长截图')
     })

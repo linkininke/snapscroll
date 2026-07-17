@@ -113,6 +113,8 @@ export function createScrollBarWindow(
   })
 
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  // 不进系统截屏 / BitBlt，避免「继续长截图」条被拼进长图
+  win.setContentProtection(true)
   void win.loadURL(rendererPage(isDev, 'scroll-bar'))
   return win
 }

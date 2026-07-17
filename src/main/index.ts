@@ -140,10 +140,20 @@ async function startManualScroll(rect: Rect): Promise<void> {
     const display = screen.getPrimaryDisplay().workArea
     const barW = 360
     const barH = 52
-    const anchor = {
-      x: Math.min(rect.x + rect.width - barW, display.x + display.width - barW - 8),
-      y: Math.min(rect.y + rect.height + 10, display.y + display.height - barH - 8)
-    }
+    // 尽量放在选区外，避免叠在聊天内容上
+    const below = rect.y + rect.height + 12
+    const above = rect.y - barH - 12
+    let barY =
+      below + barH <= display.y + display.height
+        ? below
+        : above >= display.y
+          ? above
+          : display.y + display.height - barH - 8
+    const barX = Math.min(
+      Math.max(display.x + 8, Math.round(rect.x + (rect.width - barW) / 2)),
+      display.x + display.width - barW - 8
+    )
+    const anchor = { x: barX, y: barY }
 
     if (scrollBarWindow && !scrollBarWindow.isDestroyed()) {
       scrollBarWindow.close()
