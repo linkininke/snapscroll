@@ -58,11 +58,25 @@ export function captureRegionFast(rectDip: Rect): RawFrame {
   const width = Math.max(1, Math.round(br.x - tl.x))
   const height = Math.max(1, Math.round(br.y - tl.y))
 
+  // 防止异常尺寸撑爆内存 / 打崩原生调用
+  if (width > 8192 || height > 8192 || width * height > 25_000_000) {
+    throw new Error(`截取区域过大: ${width}x${height}`)
+  }
+
   const hdcScreen = GetDC(null)
   if (!hdcScreen) throw new Error('GetDC failed')
 
   const hdcMem = CreateCompatibleDC(hdcScreen)
+  if (!hdcMem) {
+    ReleaseDC(null, hdcScreen)
+    throw new Error('CreateCompatibleDC failed')
+  }
   const hbm = CreateCompatibleBitmap(hdcScreen, width, height)
+  if (!hbm) {
+    DeleteDC(hdcMem)
+    ReleaseDC(null, hdcScreen)
+    throw new Error('CreateCompatibleBitmap failed')
+  }
   const old = SelectObject(hdcMem, hbm)
 
   try {
@@ -70,49 +84,37 @@ export function captureRegionFast(rectDip: Rect): RawFrame {
       throw new Error('BitBlt failed')
     }
 
-    const header = {
-      biSize: 40,
-      biWidth: width,
-      biHeight: -height, // top-down
-      biPlanes: 1,
-      biBitCount: 32,
-      biCompression: BI_RGB,
-      biSizeImage: 0,
-      biXPelsPerMeter: 0,
-      biYPelsPerMeter: 0,
-      biClrUsed: 0,
-      biClrImportant: 0
-    }
-
-    // BITMAPINFO = header + color table placeholder
     const bmi = Buffer.alloc(40 + 4)
-    bmi.writeUInt32LE(header.biSize, 0)
-    bmi.writeInt32LE(header.biWidth, 4)
-    bmi.writeInt32LE(header.biHeight, 8)
-    bmi.writeUInt16LE(header.biPlanes, 12)
-    bmi.writeUInt16LE(header.biBitCount, 14)
-    bmi.writeUInt32LE(header.biCompression, 16)
+    bmi.writeUInt32LE(40, 0)
+    bmi.writeInt32LE(width, 4)
+    bmi.writeInt32LE(-height, 8) // top-down
+    bmi.writeUInt16LE(1, 12)
+    bmi.writeUInt16LE(32, 14)
+    bmi.writeUInt32LE(BI_RGB, 16)
 
     const bgra = Buffer.alloc(width * height * 4)
     const ok = GetDIBits(hdcMem, hbm, 0, height, bgra, bmi, DIB_RGB_COLORS)
     if (!ok) throw new Error('GetDIBits failed')
 
-    // BGRA → RGBA
-    const rgba = Buffer.alloc(width * height * 4)
+    // BGRA → RGBA（就地转换，少占一份大缓冲）
     for (let i = 0; i < width * height; i++) {
       const o = i * 4
-      rgba[o] = bgra[o + 2]!
-      rgba[o + 1] = bgra[o + 1]!
-      rgba[o + 2] = bgra[o]!
-      rgba[o + 3] = 255
+      const b = bgra[o]!
+      bgra[o] = bgra[o + 2]!
+      bgra[o + 2] = b
+      bgra[o + 3] = 255
     }
 
-    return { data: rgba, width, height }
+    return { data: bgra, width, height }
   } finally {
-    SelectObject(hdcMem, old)
-    DeleteObject(hbm)
-    DeleteDC(hdcMem)
-    ReleaseDC(null, hdcScreen)
+    try {
+      SelectObject(hdcMem, old)
+      DeleteObject(hbm)
+      DeleteDC(hdcMem)
+      ReleaseDC(null, hdcScreen)
+    } catch {
+      // ignore cleanup errors
+    }
   }
 }
 

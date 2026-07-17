@@ -22,6 +22,7 @@ import {
   createPinWindow
 } from './windows'
 import { createTray, destroyTray } from './tray'
+import { crashLog } from './crash-log'
 
 export type CaptureMode = 'region' | 'scroll'
 
@@ -454,50 +455,86 @@ function isSilentLaunch(): boolean {
 
 app.setName('截图助手')
 
-app.whenReady().then(() => {
-  if (process.platform === 'win32') {
-    app.setAppUserModelId('截图助手')
-  }
-
-  ensureCaptureDir()
-  registerIpc()
-  registerHotkeys()
-
-  const silent = isSilentLaunch()
-  mainWindow = createMainWindow(isDev(), { silent })
-  bindMainWindowClose(mainWindow)
-
-  createTray({
-    capture: () => void showOverlay('region'),
-    fullscreen: () => void doFullscreenCapture(),
-    showMain: () => showMainWindow(),
-    openDir: () => {
-      ensureCaptureDir()
-      void shell.openPath(CAPTURE_DIR)
-    },
-    quit: () => {
-      quitting = true
-      cancelManualScroll()
-      destroyTray()
-      app.quit()
+// 单实例：重复启动会激活已有进程，避免多开互相抢快捷键后异常退出
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    try {
+      showMainWindow()
+    } catch (err) {
+      crashLog('second-instance', err)
     }
   })
 
-  app.on('activate', () => {
-    showMainWindow()
+  process.on('uncaughtException', (err) => {
+    crashLog('uncaughtException', err)
   })
-})
+  process.on('unhandledRejection', (reason) => {
+    crashLog('unhandledRejection', reason)
+  })
 
-app.on('before-quit', () => {
-  quitting = true
-  cancelManualScroll()
-})
+  app.whenReady().then(() => {
+    if (process.platform === 'win32') {
+      app.setAppUserModelId('截图助手')
+    }
 
-app.on('will-quit', () => {
-  globalShortcut.unregisterAll()
-  destroyTray()
-})
+    try {
+      ensureCaptureDir()
+      registerIpc()
+      registerHotkeys()
 
-app.on('window-all-closed', () => {
-  // 托盘常驻
-})
+      const silent = isSilentLaunch()
+      mainWindow = createMainWindow(isDev(), { silent })
+      bindMainWindowClose(mainWindow)
+
+      createTray({
+        capture: () => void showOverlay('region'),
+        fullscreen: () => void doFullscreenCapture(),
+        showMain: () => showMainWindow(),
+        openDir: () => {
+          ensureCaptureDir()
+          void shell.openPath(CAPTURE_DIR)
+        },
+        quit: () => {
+          quitting = true
+          cancelManualScroll()
+          destroyTray()
+          app.quit()
+        }
+      })
+
+      app.on('activate', () => {
+        showMainWindow()
+      })
+
+      app.on('render-process-gone', (_e, _wc, details) => {
+        crashLog('render-process-gone', details)
+      })
+      app.on('child-process-gone', (_e, details) => {
+        crashLog('child-process-gone', details)
+      })
+    } catch (err) {
+      crashLog('whenReady', err)
+    }
+  })
+
+  app.on('before-quit', () => {
+    quitting = true
+    cancelManualScroll()
+  })
+
+  app.on('will-quit', () => {
+    try {
+      globalShortcut.unregisterAll()
+      destroyTray()
+    } catch (err) {
+      crashLog('will-quit', err)
+    }
+  })
+
+  app.on('window-all-closed', () => {
+    // 托盘常驻，不退出
+  })
+}

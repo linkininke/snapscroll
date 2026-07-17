@@ -151,13 +151,21 @@ export function createPinWindow(
   })
 
   win.setMenuBarVisibility(false)
+  win.webContents.on('render-process-gone', (_e, details) => {
+    console.error('[pin] render-process-gone', details)
+  })
   win.on('ready-to-show', () => {
     win.show()
     win.focus()
   })
 
-  const page = rendererPage(isDev, 'pin')
-  const url = `${page}?src=${encodeURIComponent(opts.filePath)}&w=${opts.width}&h=${opts.height}`
-  void win.loadURL(url)
+  // 超高长图窗口高度限制在屏幕内，避免创建异常窗口
+  try {
+    const page = rendererPage(isDev, 'pin')
+    const url = `${page}?src=${encodeURIComponent(opts.filePath)}&w=${opts.width}&h=${opts.height}`
+    void win.loadURL(url)
+  } catch (err) {
+    console.error('[pin] loadURL failed', err)
+  }
   return win
 }

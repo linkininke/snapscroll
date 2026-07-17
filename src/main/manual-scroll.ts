@@ -183,7 +183,7 @@ export async function stitchFrames(frames: Frame[]): Promise<Buffer> {
   const first = frames[0]!
   const width = first.width
   const rowBytes = width * 4
-  const maxH = 30000
+  const maxH = 16000
 
   let capacity = Math.min(
     maxH,
@@ -304,7 +304,13 @@ export class ManualScrollSession {
     }
     if (this.frames.length === 0) throw new Error('长截图失败：没有捕获到内容')
     this.callbacks.onStatus?.('正在拼接成长图…')
-    return stitchFrames(this.frames)
+    try {
+      const png = await stitchFrames(this.frames)
+      return png
+    } finally {
+      // 尽早释放帧内存，避免贴图前 OOM 闪退
+      this.frames = []
+    }
   }
 
   cancel(): void {
@@ -314,10 +320,11 @@ export class ManualScrollSession {
 
   private async pollLoop(): Promise<void> {
     let last = this.frames[0]!
-    const maxFrames = 250
+    const maxFrames = 90
+    const minAdvance = Math.max(12, Math.floor(last.height * 0.04))
 
     while (this.running) {
-      await sleep(55)
+      await sleep(70)
       if (!this.running) break
       if (this.frames.length >= maxFrames) {
         this.callbacks.onStatus?.('已达最大长度，请点完成')
@@ -331,8 +338,11 @@ export class ManualScrollSession {
         continue
       }
 
-      // 画面有变化就收帧（不要求匀速、不要求滚很大）
       if (frameSimilarity(last, curr) > 0.994) continue
+
+      // 必须确认滚出一段新内容再收帧，避免近重复帧撑爆内存
+      const append = findAppendHeight(last, curr)
+      if (append == null || append < minAdvance) continue
 
       this.frames.push(curr)
       last = curr
