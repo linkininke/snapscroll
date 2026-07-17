@@ -245,7 +245,7 @@ function OverlayApp(): React.JSX.Element {
     ? finished.kind === 'window'
       ? '已选中当前窗口 · 点右下角截图/长截图 · Esc 取消'
       : '自定义选区 · 点右下角截图/长截图 · Esc 取消'
-    : '移动扫描窗口边缘 · 单击截当前窗口 · 拖拽自定义选区 · Esc 取消'
+    : '移到微信等窗口上看边缘高亮 · 单击截当前窗口 · 拖拽才自定义 · Esc 取消'
 
   return (
     <div
