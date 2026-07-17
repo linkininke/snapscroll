@@ -69,7 +69,7 @@ function PinApp(): React.JSX.Element {
   const displayH = naturalH > 0 ? naturalH / dpr : undefined
   const fileUrl = src.startsWith('file:') ? src : `file://${src.replace(/\\/g, '/')}`
 
-  // 1 = 原图像素 100%；滚轮再额外缩放
+  // 1 = 100%；Ctrl+滚轮缩放，普通滚轮上下平移（长图浏览）
   const [scale, setScale] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const dragging = useRef(false)
@@ -83,8 +83,16 @@ function PinApp(): React.JSX.Element {
     if (!el) return
     const onWheelNative = (e: WheelEvent): void => {
       e.preventDefault()
-      const delta = e.deltaY > 0 ? -0.12 : 0.12
-      setScale((s) => clampScale(Number((s + delta).toFixed(3))))
+      // Ctrl+滚轮：缩放大小
+      if (e.ctrlKey || e.metaKey) {
+        const delta = e.deltaY > 0 ? -0.12 : 0.12
+        setScale((s) => clampScale(Number((s + delta).toFixed(3))))
+        return
+      }
+      // 普通滚轮：上下滚动浏览（长图）
+      const dy = e.deltaY
+      const dx = e.deltaX
+      setOffset((o) => ({ x: o.x - dx, y: o.y - dy }))
     }
     el.addEventListener('wheel', onWheelNative, { passive: false })
     return () => el.removeEventListener('wheel', onWheelNative)
@@ -103,6 +111,10 @@ function PinApp(): React.JSX.Element {
       } else if (e.key === '0') {
         setScale(1)
         setOffset({ x: 0, y: 0 })
+      } else if (e.key === 'ArrowUp') {
+        setOffset((o) => ({ ...o, y: o.y + 80 }))
+      } else if (e.key === 'ArrowDown') {
+        setOffset((o) => ({ ...o, y: o.y - 80 }))
       }
     }
     window.addEventListener('keydown', onKey)
@@ -164,7 +176,7 @@ function PinApp(): React.JSX.Element {
         )}
       </div>
 
-      <div className="zoom-badge" title="滚轮缩放 · +/- 键 · 0 复位 · 双击复位">
+      <div className="zoom-badge" title="滚轮上下 · Ctrl+滚轮缩放 · Esc 退出">
         {Math.round(scale * 100)}%
       </div>
 
@@ -172,7 +184,7 @@ function PinApp(): React.JSX.Element {
         <button
           type="button"
           className="icon-btn"
-          title="缩小（滚轮向下 / -）"
+          title="缩小（Ctrl+滚轮 / -）"
           onClick={() => setScale((s) => clampScale(s - 0.15))}
         >
           <IconZoomOut />
@@ -180,7 +192,7 @@ function PinApp(): React.JSX.Element {
         <button
           type="button"
           className="icon-btn"
-          title="放大（滚轮向上 / +）"
+          title="放大（Ctrl+滚轮 / +）"
           onClick={() => setScale((s) => clampScale(s + 0.15))}
         >
           <IconZoomIn />
@@ -191,7 +203,7 @@ function PinApp(): React.JSX.Element {
         <button type="button" className="icon-btn" title="保存" onClick={() => void save()}>
           <IconSave />
         </button>
-        <button type="button" className="icon-btn" title="关闭" onClick={() => void window.pinApi.close()}>
+        <button type="button" className="icon-btn" title="关闭（Esc）" onClick={() => void window.pinApi.close()}>
           <IconClose />
         </button>
       </div>
