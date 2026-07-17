@@ -1,0 +1,102 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  color: #f0f0f0;
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  overflow: hidden;
+  user-select: none;
+}
+
+.pin {
+  height: 100%;
+  position: relative;
+  background: #1e1e1e;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.drag-area {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 28px;
+  z-index: 2;
+  -webkit-app-region: drag;
+}
+
+.body {
+  height: 100%;
+  overflow: auto;
+  display: grid;
+  place-items: center;
+  cursor: grab;
+  background:
+    linear-gradient(45deg, #2a2a2a 25%, transparent 25%) 0 0 / 12px 12px,
+    linear-gradient(-45deg, #2a2a2a 25%, transparent 25%) 0 6px / 12px 12px,
+    #1e1e1e;
+}
+
+.body:active {
+  cursor: grabbing;
+}
+
+.body img {
+  display: block;
+  /* 强制按原图像素显示，不做 CSS 自适应缩小 */
+  image-rendering: auto;
+  will-change: transform;
+}
+
+.zoom-badge {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 3;
+  font-size: 11px;
+  padding: 3px 7px;
+  border-radius: 3px;
+  background: rgba(20, 20, 20, 0.85);
+  color: #cfcfcf;
+  pointer-events: none;
+}
+
+.corner-bar {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 4px;
+  background: rgba(32, 32, 32, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  z-index: 3;
+  -webkit-app-region: no-drag;
+}
+
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #e8e8e8;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.icon-btn:active {
+  background: rgba(255, 255, 255, 0.2);
+}

@@ -1,0 +1,77 @@
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  user-select: none;
+}
+
+.bar {
+  height: 100%;
+  margin: 2px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 0 12px;
+  border-radius: 6px;
+  background: rgba(28, 28, 28, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  color: #f0f0f0;
+  -webkit-app-region: drag;
+}
+
+.meta {
+  flex: 1;
+  min-width: 0;
+  -webkit-app-region: drag;
+}
+
+.title {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: rgba(240, 240, 240, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.count {
+  font-size: 13px;
+  color: #6ad1ff;
+  min-width: 1.5em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.finish-icon {
+  -webkit-app-region: no-drag;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 5px;
+  background: rgba(106, 209, 255, 0.18);
+  color: #6ad1ff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.finish-icon:hover {
+  background: rgba(106, 209, 255, 0.32);
+  color: #fff;
+}
+
+.finish-icon:active {
+  background: rgba(106, 209, 255, 0.45);
+}

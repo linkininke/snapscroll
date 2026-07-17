@@ -1,0 +1,154 @@
+:root {
+  --bg0: #1a1512;
+  --bg1: #241e19;
+  --ink: #f3e6d8;
+  --muted: #b7a492;
+  --line: rgba(243, 230, 216, 0.12);
+  --accent: #d46a4a;
+  --accent-2: #e8b86d;
+  --font-display: 'Segoe UI Semibold', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-body: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: radial-gradient(120% 90% at 10% 0%, #3a2a22 0%, var(--bg0) 55%, #120f0d 100%);
+  color: var(--ink);
+  font-family: var(--font-body);
+}
+
+.app {
+  height: 100%;
+  padding: 28px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.hero {
+  position: relative;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: -20px -10px auto;
+  height: 90px;
+  background: radial-gradient(ellipse at 20% 40%, rgba(212, 106, 74, 0.28), transparent 60%);
+  pointer-events: none;
+}
+
+.brand {
+  font-family: var(--font-display);
+  font-size: 34px;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+}
+
+.tagline {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.panel {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.panel h2 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.hotkeys {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.hotkeys li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+}
+
+kbd {
+  font-family: var(--font-body);
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--accent-2);
+}
+
+.actions {
+  display: grid;
+  gap: 10px;
+}
+
+.btn {
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: transform 120ms ease, filter 120ms ease;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn.primary {
+  background: linear-gradient(135deg, #e07a58, var(--accent));
+  color: #fff8f2;
+}
+
+.btn.accent {
+  background: linear-gradient(135deg, #f0c37a, #d49a45);
+  color: #2a1c10;
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+
+.tip {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.status {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.path {
+  margin-top: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.8;
+}
