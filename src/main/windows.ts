@@ -78,9 +78,9 @@ export function createScrollBarWindow(
   anchor?: { x: number; y: number }
 ): BrowserWindow {
   const display = screen.getPrimaryDisplay().workArea
-  const width = 360
-  const height = 52
-  // 默认贴在选区附近；没有锚点则靠屏幕底部
+  // 与选区第一次操作栏同尺寸，便于位置对齐
+  const width = 88
+  const height = 42
   let x = display.x + Math.floor((display.width - width) / 2)
   let y = display.y + display.height - height - 24
   if (anchor) {
@@ -101,7 +101,6 @@ export function createScrollBarWindow(
     alwaysOnTop: true,
     hasShadow: false,
     show: false,
-    // 不抢焦点，方便用户立刻用滚轮滚下面的窗口
     focusable: false,
     backgroundColor: '#00000000',
     webPreferences: {
@@ -113,7 +112,6 @@ export function createScrollBarWindow(
   })
 
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-  // 不要 setContentProtection：叠在选区上时 BitBlt 会变成黑块，拼进长图就是黑线断层
   void win.loadURL(rendererPage(isDev, 'scroll-bar'))
   return win
 }

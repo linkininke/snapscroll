@@ -13,7 +13,7 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     void window.snapscroll.getHotkeys().then(setHotkeys)
     const offDone = window.snapscroll.onCaptureDone((p) => {
-      setStatus(p.mode === 'scroll' ? '长截图已复制到剪贴板' : '截图已复制到剪贴板')
+      setStatus(p.mode === 'scroll' ? '长截图已贴图（滚轮可缩放）' : '截图已贴图（滚轮可缩放）')
       setLastFile(p.filePath)
     })
     const offStatus = window.snapscroll.onCaptureStatus((p) => {

@@ -40,6 +40,24 @@ function IconClose(): React.JSX.Element {
   )
 }
 
+function IconZoomIn(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+      <circle cx="10.5" cy="10.5" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M15 15l4.5 4.5M10.5 8v5M8 10.5h5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function IconZoomOut(): React.JSX.Element {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+      <circle cx="10.5" cy="10.5" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M15 15l4.5 4.5M8 10.5h5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 function PinApp(): React.JSX.Element {
   const params = useMemo(() => new URLSearchParams(window.location.search), [])
   const src = params.get('src') ?? ''
@@ -146,9 +164,27 @@ function PinApp(): React.JSX.Element {
         )}
       </div>
 
-      <div className="zoom-badge">{Math.round(scale * 100)}%</div>
+      <div className="zoom-badge" title="滚轮缩放 · +/- 键 · 0 复位 · 双击复位">
+        {Math.round(scale * 100)}%
+      </div>
 
       <div className="corner-bar" onPointerDown={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          className="icon-btn"
+          title="缩小（滚轮向下 / -）"
+          onClick={() => setScale((s) => clampScale(s - 0.15))}
+        >
+          <IconZoomOut />
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          title="放大（滚轮向上 / +）"
+          onClick={() => setScale((s) => clampScale(s + 0.15))}
+        >
+          <IconZoomIn />
+        </button>
         <button type="button" className="icon-btn" title="复制" onClick={() => void window.pinApi.copy(src)}>
           <IconCopy />
         </button>
