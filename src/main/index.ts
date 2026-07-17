@@ -140,29 +140,17 @@ async function startManualScroll(rect: Rect): Promise<void> {
     const display = screen.getPrimaryDisplay().workArea
     const barW = 360
     const barH = 52
-    // 浮条尽量放在选区外的屏幕角落，避免叠进长图
-    const candidates = [
-      { x: display.x + display.width - barW - 16, y: display.y + display.height - barH - 16 },
-      { x: display.x + 16, y: display.y + display.height - barH - 16 },
-      { x: display.x + display.width - barW - 16, y: display.y + 16 },
-      { x: display.x + 16, y: display.y + 16 },
-      { x: Math.round(rect.x + (rect.width - barW) / 2), y: rect.y + rect.height + 12 },
-      { x: Math.round(rect.x + (rect.width - barW) / 2), y: rect.y - barH - 12 }
-    ]
+    // 与第一次选区右下角操作栏对齐（贴选区下方、右缘对齐）
+    let anchor = {
+      x: Math.round(rect.x + rect.width - barW),
+      y: Math.round(rect.y + rect.height + 8)
+    }
+    anchor = {
+      x: Math.min(Math.max(display.x + 8, anchor.x), display.x + display.width - barW - 8),
+      y: Math.min(Math.max(display.y + 8, anchor.y), display.y + display.height - barH - 8)
+    }
     const overlaps = (a: Rect, b: { x: number; y: number; width: number; height: number }): boolean =>
       a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
-    let anchor =
-      candidates.find((c) => {
-        const clamped = {
-          x: Math.min(Math.max(display.x, c.x), display.x + display.width - barW),
-          y: Math.min(Math.max(display.y, c.y), display.y + display.height - barH)
-        }
-        return !overlaps(rect, { ...clamped, width: barW, height: barH })
-      }) ?? candidates[0]!
-    anchor = {
-      x: Math.min(Math.max(display.x, anchor.x), display.x + display.width - barW),
-      y: Math.min(Math.max(display.y, anchor.y), display.y + display.height - barH)
-    }
     const barOverlapsCapture = overlaps(rect, { ...anchor, width: barW, height: barH })
 
     if (scrollBarWindow && !scrollBarWindow.isDestroyed()) {
@@ -174,7 +162,6 @@ async function startManualScroll(rect: Rect): Promise<void> {
     scrollBarWindow.showInactive()
 
     scrollSession = new ManualScrollSession(rect, {
-      // 仅当浮条与选区重叠时才临时隐藏，避免黑块/闪得太勤
       onBeforeCapture: barOverlapsCapture
         ? () => {
             if (scrollBarWindow && !scrollBarWindow.isDestroyed()) scrollBarWindow.hide()

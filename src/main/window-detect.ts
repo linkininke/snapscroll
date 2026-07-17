@@ -3,6 +3,7 @@ import { BrowserWindow, screen } from 'electron'
 import type { Rect } from './scroll-stitch'
 
 const user32 = koffi.load('user32.dll')
+const dwmapi = koffi.load('dwmapi.dll')
 
 const RECT = koffi.struct('RECT', {
   left: 'long',
@@ -30,6 +31,9 @@ const GetAncestor = user32.func('void * __stdcall GetAncestor(void *hwnd, uint g
 const WindowFromPoint = user32.func('void * __stdcall WindowFromPoint(POINT Point)')
 const GetClassNameW = user32.func('int __stdcall GetClassNameW(void *hWnd, _Out_ uint16 *lpClassName, int nMaxCount)')
 const GetWindowTextW = user32.func('int __stdcall GetWindowTextW(void *hWnd, _Out_ uint16 *lpString, int nMaxCount)')
+const DwmGetWindowAttribute = dwmapi.func(
+  'long __stdcall DwmGetWindowAttribute(void *hwnd, uint dwAttribute, _Out_ RECT *pvAttribute, uint cbAttribute)'
+)
 
 const GWL_STYLE = -16
 const GWL_EXSTYLE = -20
@@ -39,6 +43,9 @@ const WS_EX_NOACTIVATE = 0x08000000
 const WS_EX_TRANSPARENT = 0x00000020
 const WS_EX_LAYERED = 0x00080000
 const GA_ROOT = 2
+/** 可视窗口边框（不含 Win10/11 阴影那一圈） */
+const DWMWA_EXTENDED_FRAME_BOUNDS = 9
+const SIZEOF_RECT = 16
 
 type RawRect = { left: number; top: number; right: number; bottom: number }
 
@@ -103,14 +110,23 @@ function nearlyFullscreen(raw: RawRect): boolean {
   const screenH = Math.abs(physBr.y - physTl.y)
   const w = raw.right - raw.left
   const h = raw.bottom - raw.top
-  // 覆盖整块显示器 96%+ 的壳层不要当作“当前应用窗”
   return w >= screenW * 0.96 && h >= screenH * 0.96
 }
 
-function getRawRect(hwnd: unknown): RawRect | null {
-  const rect = {}
+/** 优先 DWM 可视框，去掉阴影；失败再回退 GetWindowRect */
+function getVisibleRawRect(hwnd: unknown): RawRect | null {
+  const rect = { left: 0, top: 0, right: 0, bottom: 0 }
+  try {
+    const hr = DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, rect, SIZEOF_RECT)
+    if (hr === 0 && rect.right > rect.left && rect.bottom > rect.top) {
+      return rect
+    }
+  } catch {
+    // ignore
+  }
   if (!GetWindowRect(hwnd, rect)) return null
-  return rect as RawRect
+  if (rect.right <= rect.left || rect.bottom <= rect.top) return null
+  return rect
 }
 
 function containsPoint(raw: RawRect, px: number, py: number): boolean {
@@ -135,18 +151,16 @@ function collectCandidates(px: number, py: number): Candidate[] {
     const wechat = isWeChatLike(title, cls)
 
     if (isDesktopOrShell(title, cls)) return true
-    // 透明点击穿透层跳过（除非微信）
     if ((ex & WS_EX_TRANSPARENT) && !wechat) return true
     if ((ex & WS_EX_TOOLWINDOW) && !wechat && !title) return true
     if ((ex & WS_EX_NOACTIVATE) && !wechat && (ex & WS_EX_TOOLWINDOW)) return true
 
-    const raw = getRawRect(hwnd)
+    const raw = getVisibleRawRect(hwnd)
     if (!raw) return true
     const w = raw.right - raw.left
     const h = raw.bottom - raw.top
     if (w < 80 || h < 80) return true
     if (!containsPoint(raw, px, py)) return true
-    // 非微信的“假全屏”壳不要
     if (!wechat && nearlyFullscreen(raw)) return true
 
     list.push({
@@ -174,11 +188,9 @@ function collectCandidates(px: number, py: number): Candidate[] {
 function pickBest(cands: Candidate[]): Candidate | null {
   if (cands.length === 0) return null
 
-  // 1) 光标下的微信主窗优先（按 Z 序最靠前）
   const wechat = cands.filter((c) => c.wechat).sort((a, b) => a.zOrder - b.zOrder)
   if (wechat.length > 0) return wechat[0]
 
-  // 2) 其余：Z 序最前，且面积不是离谱大屏
   const normal = [...cands].sort((a, b) => {
     if (a.zOrder !== b.zOrder) return a.zOrder - b.zOrder
     return a.area - b.area
@@ -205,7 +217,7 @@ function fromWindowFromPoint(px: number, py: number): Rect | null {
     const cls = readWString(GetClassNameW, root, 256)
     if (isDesktopOrShell(title, cls)) return null
 
-    const raw = getRawRect(root)
+    const raw = getVisibleRawRect(root)
     if (!raw) return null
     const w = raw.right - raw.left
     const h = raw.bottom - raw.top
@@ -225,9 +237,7 @@ function fromWindowFromPoint(px: number, py: number): Rect | null {
 }
 
 /**
- * 在物理屏幕坐标处解析“当前窗口”边框（DIP）。
- * 先用 EnumWindows 候选打分（避免误吸桌面/全屏壳导致选区卡住），
- * 找不到时再用 WindowFromPoint 穿透兜底。
+ * 在物理屏幕坐标处解析“当前窗口”边框（DIP，不含阴影）。
  */
 export function getTopWindowRectAtPhysical(px: number, py: number): Rect | null {
   const cands = collectCandidates(px, py)
@@ -239,9 +249,9 @@ export function getTopWindowRectAtPhysical(px: number, py: number): Rect | null 
 
 /** DIP 屏幕坐标 → 窗口矩形（DIP） */
 export function getTopWindowRectAtDip(dipX: number, dipY: number): Rect | null {
-  // Electron/Chromium 的 screenX 与 getCursorScreenPoint 同为 DIP
   const phys = screen.dipToScreenPoint({ x: Math.round(dipX), y: Math.round(dipY) })
   return getTopWindowRectAtPhysical(phys.x, phys.y)
 }
 
 void WS_EX_LAYERED
+void RECT

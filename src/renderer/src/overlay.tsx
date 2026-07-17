@@ -254,7 +254,8 @@ function OverlayApp(): React.JSX.Element {
 
   const barStyle = finished
     ? {
-        left: Math.min(finished.left + finished.width - 8, window.innerWidth - 96),
+        // 右缘与选区右缘对齐（与第二步完成浮条一致）
+        left: Math.min(finished.left + finished.width - 96, window.innerWidth - 100),
         top: Math.min(finished.top + finished.height + 8, window.innerHeight - 48)
       }
     : undefined
