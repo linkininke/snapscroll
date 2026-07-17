@@ -36,8 +36,8 @@ function ScrollBarApp(): React.JSX.Element {
   return (
     <div className="bar">
       <div className="meta">
-        <div className="title">长截图中</div>
-        <div className="sub">滚动鼠标下窗口 · 再点图标或 F1 完成 · Esc 取消</div>
+        <div className="title">连续长截图中</div>
+        <div className="sub">请匀速向下滚动 · 边滚边截 · 完成后点图标</div>
       </div>
       <span className="count">{frames}</span>
       <button
