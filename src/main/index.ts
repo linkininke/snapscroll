@@ -140,18 +140,23 @@ async function startManualScroll(rect: Rect): Promise<void> {
     const display = screen.getPrimaryDisplay().workArea
     const barW = 360
     const barH = 52
-    // 与第一次选区右下角操作栏对齐（贴选区下方、右缘对齐）
-    let anchor = {
-      x: Math.round(rect.x + rect.width - barW),
-      y: Math.round(rect.y + rect.height + 8)
-    }
-    anchor = {
-      x: Math.min(Math.max(display.x + 8, anchor.x), display.x + display.width - barW - 8),
-      y: Math.min(Math.max(display.y + 8, anchor.y), display.y + display.height - barH - 8)
-    }
     const overlaps = (a: Rect, b: { x: number; y: number; width: number; height: number }): boolean =>
       a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
-    const barOverlapsCapture = overlaps(rect, { ...anchor, width: barW, height: barH })
+    const clamp = (p: { x: number; y: number }): { x: number; y: number } => ({
+      x: Math.min(Math.max(display.x + 8, p.x), display.x + display.width - barW - 8),
+      y: Math.min(Math.max(display.y + 8, p.y), display.y + display.height - barH - 8)
+    })
+    // 与第一次操作栏同侧对齐，且必须落在选区外（禁止截屏时 hide/show，否则会闪）
+    const candidates = [
+      { x: rect.x + rect.width - barW, y: rect.y + rect.height + 8 },
+      { x: rect.x + rect.width - barW, y: rect.y - barH - 8 },
+      { x: rect.x + rect.width + 8, y: rect.y + rect.height - barH },
+      { x: rect.x - barW - 8, y: rect.y + rect.height - barH }
+    ]
+    let anchor =
+      candidates
+        .map(clamp)
+        .find((c) => !overlaps(rect, { ...c, width: barW, height: barH })) ?? clamp(candidates[0]!)
 
     if (scrollBarWindow && !scrollBarWindow.isDestroyed()) {
       scrollBarWindow.close()
@@ -162,16 +167,6 @@ async function startManualScroll(rect: Rect): Promise<void> {
     scrollBarWindow.showInactive()
 
     scrollSession = new ManualScrollSession(rect, {
-      onBeforeCapture: barOverlapsCapture
-        ? () => {
-            if (scrollBarWindow && !scrollBarWindow.isDestroyed()) scrollBarWindow.hide()
-          }
-        : undefined,
-      onAfterCapture: barOverlapsCapture
-        ? () => {
-            if (scrollBarWindow && !scrollBarWindow.isDestroyed()) scrollBarWindow.showInactive()
-          }
-        : undefined,
       onFrameCount: (count) => {
         if (scrollBarWindow && !scrollBarWindow.isDestroyed()) {
           scrollBarWindow.webContents.send('scroll-bar:frames', count)

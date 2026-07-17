@@ -129,6 +129,35 @@ function getVisibleRawRect(hwnd: unknown): RawRect | null {
   return rect
 }
 
+/**
+ * 再收一圈：DWM 后仍可能剩淡阴影 / 圆角外透明边。
+ * 微信多一些，其它窗口只微收。
+ */
+function tightenRawRect(raw: RawRect, wechat: boolean): RawRect {
+  const display = screen.getDisplayNearestPoint(
+    screen.screenToDipPoint({ x: raw.left + 4, y: raw.top + 4 })
+  )
+  const scale = display.scaleFactor || 1
+  // 物理像素内缩：微信约 7dip，其它 1dip
+  const inset = Math.max(1, Math.round((wechat ? 7 : 1) * scale))
+  const left = raw.left + inset
+  const top = raw.top + inset
+  const right = raw.right - inset
+  const bottom = raw.bottom - inset
+  if (right - left < 60 || bottom - top < 60) return raw
+  return { left, top, right, bottom }
+}
+
+function rectFromHwnd(hwnd: unknown, wechat: boolean): Rect | null {
+  const raw0 = getVisibleRawRect(hwnd)
+  if (!raw0) return null
+  const raw = tightenRawRect(raw0, wechat)
+  const w = raw.right - raw.left
+  const h = raw.bottom - raw.top
+  if (w < 80 || h < 80) return null
+  return physicalToDipRect(raw.left, raw.top, raw.right, raw.bottom)
+}
+
 function containsPoint(raw: RawRect, px: number, py: number): boolean {
   return px >= raw.left && px < raw.right && py >= raw.top && py < raw.bottom
 }
@@ -155,13 +184,15 @@ function collectCandidates(px: number, py: number): Candidate[] {
     if ((ex & WS_EX_TOOLWINDOW) && !wechat && !title) return true
     if ((ex & WS_EX_NOACTIVATE) && !wechat && (ex & WS_EX_TOOLWINDOW)) return true
 
-    const raw = getVisibleRawRect(hwnd)
-    if (!raw) return true
+    const raw0 = getVisibleRawRect(hwnd)
+    if (!raw0) return true
+    // 命中测试仍用未内缩框，避免边缘点选失败；展示/截取用收紧后的框
+    if (!containsPoint(raw0, px, py)) return true
+    const raw = tightenRawRect(raw0, wechat)
     const w = raw.right - raw.left
     const h = raw.bottom - raw.top
     if (w < 80 || h < 80) return true
-    if (!containsPoint(raw, px, py)) return true
-    if (!wechat && nearlyFullscreen(raw)) return true
+    if (!wechat && nearlyFullscreen(raw0)) return true
 
     list.push({
       hwnd,
@@ -217,14 +248,11 @@ function fromWindowFromPoint(px: number, py: number): Rect | null {
     const cls = readWString(GetClassNameW, root, 256)
     if (isDesktopOrShell(title, cls)) return null
 
-    const raw = getVisibleRawRect(root)
-    if (!raw) return null
-    const w = raw.right - raw.left
-    const h = raw.bottom - raw.top
-    if (w < 80 || h < 80) return null
+    const raw0 = getVisibleRawRect(root)
+    if (!raw0) return null
     const wechat = isWeChatLike(title, cls)
-    if (!wechat && nearlyFullscreen(raw)) return null
-    return physicalToDipRect(raw.left, raw.top, raw.right, raw.bottom)
+    if (!wechat && nearlyFullscreen(raw0)) return null
+    return rectFromHwnd(root, wechat)
   } finally {
     for (const w of ours) {
       try {
