@@ -197,7 +197,14 @@ function PinApp(): React.JSX.Element {
         >
           <IconZoomIn />
         </button>
-        <button type="button" className="icon-btn" title="复制" onClick={() => void window.pinApi.copy(src)}>
+        <button
+          type="button"
+          className="icon-btn"
+          title="复制并关闭"
+          onClick={() => {
+            void window.pinApi.copy(src).then(() => void window.pinApi.close())
+          }}
+        >
           <IconCopy />
         </button>
         <button type="button" className="icon-btn" title="保存" onClick={() => void save()}>
