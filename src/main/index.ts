@@ -165,6 +165,7 @@ function finishWithPng(png: Buffer, mode: CaptureMode): void {
 
   const image = nativeImage.createFromBuffer(png)
   clipboard.writeImage(image)
+  crashLog('capture-done', `${mode} ${image.getSize().width}x${image.getSize().height} ${filePath}`)
 
   const size = image.getSize()
   const pin = createPinWindow(isDev(), {
@@ -455,6 +456,13 @@ function isSilentLaunch(): boolean {
 
 app.setName('截图助手')
 
+// 降低 GPU/合成器压力，规避部分驱动在截屏后的 TDR/蓝屏
+try {
+  app.disableHardwareAcceleration()
+} catch {
+  // ignore
+}
+
 // 单实例：重复启动会激活已有进程，避免多开互相抢快捷键后异常退出
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -482,6 +490,7 @@ if (!gotLock) {
 
     try {
       ensureCaptureDir()
+      crashLog('startup', `pid=${process.pid} silent=${isSilentLaunch()} hwAccel=off`)
       registerIpc()
       registerHotkeys()
 

@@ -1,6 +1,7 @@
 import { Jimp } from 'jimp'
 import type { Rect } from './scroll-stitch'
-import { captureRegionFast, type RawFrame } from './capture-fast'
+import { captureRegionRaw } from './capture'
+import type { RawFrame } from './capture-fast'
 
 export type { Rect }
 
@@ -245,10 +246,12 @@ export type ManualScrollCallbacks = {
   onAfterCapture?: () => void
 }
 
-function capture(rect: Rect, cb: ManualScrollCallbacks): Frame {
+async function capture(rect: Rect, cb: ManualScrollCallbacks): Promise<Frame> {
   try {
     cb.onBeforeCapture?.()
-    return captureRegionFast(rect)
+    // 不用高频 BitBlt：部分显卡驱动下会触发 TDR/蓝屏；改用 desktop 截屏更稳
+    const raw = await captureRegionRaw(rect)
+    return { data: raw.bitmap, width: raw.width, height: raw.height }
   } finally {
     cb.onAfterCapture?.()
   }
@@ -278,7 +281,7 @@ export class ManualScrollSession {
     this.running = true
     this.frames = []
 
-    const first = capture(this.rect, this.callbacks)
+    const first = await capture(this.rect, this.callbacks)
     this.frames.push(first)
     this.callbacks.onFrameCount?.(this.frames.length)
     this.callbacks.onStatus?.('长截图中，请滚动窗口，完成后点按钮或按 F1')
@@ -293,7 +296,7 @@ export class ManualScrollSession {
       this.loopPromise = null
     }
     try {
-      const lastShot = capture(this.rect, this.callbacks)
+      const lastShot = await capture(this.rect, this.callbacks)
       const prev = this.frames[this.frames.length - 1]
       if (!prev || frameSimilarity(prev, lastShot) < 0.995) {
         this.frames.push(lastShot)
@@ -308,7 +311,6 @@ export class ManualScrollSession {
       const png = await stitchFrames(this.frames)
       return png
     } finally {
-      // 尽早释放帧内存，避免贴图前 OOM 闪退
       this.frames = []
     }
   }
@@ -320,11 +322,12 @@ export class ManualScrollSession {
 
   private async pollLoop(): Promise<void> {
     let last = this.frames[0]!
-    const maxFrames = 90
-    const minAdvance = Math.max(12, Math.floor(last.height * 0.04))
+    const maxFrames = 60
+    const minAdvance = Math.max(16, Math.floor(last.height * 0.06))
 
     while (this.running) {
-      await sleep(70)
+      // 拉长间隔，降低显卡驱动压力（本机曾出现截屏后蓝屏/TDR）
+      await sleep(220)
       if (!this.running) break
       if (this.frames.length >= maxFrames) {
         this.callbacks.onStatus?.('已达最大长度，请点完成')
@@ -333,14 +336,13 @@ export class ManualScrollSession {
 
       let curr: Frame
       try {
-        curr = capture(this.rect, this.callbacks)
+        curr = await capture(this.rect, this.callbacks)
       } catch {
         continue
       }
 
       if (frameSimilarity(last, curr) > 0.994) continue
 
-      // 必须确认滚出一段新内容再收帧，避免近重复帧撑爆内存
       const append = findAppendHeight(last, curr)
       if (append == null || append < minAdvance) continue
 
